@@ -92,11 +92,15 @@ static int opt_get_u32(const uint8_t *opts, int opts_len, uint8_t key, uint32_t 
         uint8_t l = opts[i++];
         if (i + l > opts_len) break;
         if (t == key && l >= 4) {
+            /* Wire bytes are already the address in reading order, so the
+             * big-endian assembly *is* the host-order value (a.b.c.d ->
+             * 0xAABBCCDD) that ip_print()/net_apply() expect.  Swapping here
+             * too would double-convert every option. */
             uint32_t netv = ((uint32_t)opts[i] << 24) |
                             ((uint32_t)opts[i + 1] << 16) |
                             ((uint32_t)opts[i + 2] << 8) |
                             (uint32_t)opts[i + 3];
-            *out = ntohl(netv);
+            *out = netv;
             return 0;
         }
         i += l;
@@ -131,13 +135,14 @@ static void opt_append_u8(uint8_t *opts, int *off, int cap, uint8_t key, uint8_t
 
 static void opt_append_u32(uint8_t *opts, int *off, int cap, uint8_t key, uint32_t host_val) {
     if (*off + 6 > cap) return;
-    uint32_t n = htonl(host_val);
+    /* Emit the host-order value big-endian: no htonl() first, or the two
+     * conversions cancel and the address goes out byte-reversed. */
     opts[(*off)++] = key;
     opts[(*off)++] = 4;
-    opts[(*off)++] = (uint8_t)((n >> 24) & 0xFF);
-    opts[(*off)++] = (uint8_t)((n >> 16) & 0xFF);
-    opts[(*off)++] = (uint8_t)((n >> 8) & 0xFF);
-    opts[(*off)++] = (uint8_t)(n & 0xFF);
+    opts[(*off)++] = (uint8_t)((host_val >> 24) & 0xFF);
+    opts[(*off)++] = (uint8_t)((host_val >> 16) & 0xFF);
+    opts[(*off)++] = (uint8_t)((host_val >> 8) & 0xFF);
+    opts[(*off)++] = (uint8_t)(host_val & 0xFF);
 }
 
 static void opt_end(uint8_t *opts, int *off, int cap) {
