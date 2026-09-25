@@ -1,39 +1,41 @@
-# dhcpd — DHCP-клиент CactOS
+# dhcpd — CactOS DHCP client
 
-Userspace-демон, который держит на сетевой карте адрес по DHCP
-(аналог `dhclient`/`dhcpcd`). Ядро CactOS DHCP-клиент **не** выполняет —
-оно лишь применяет конфиг, который присылает пользовательский демон.
+A userspace daemon that keeps a DHCP lease on the NIC (like
+`dhclient`/`dhcpcd`). The CactOS kernel does **not** run a DHCP client — it only
+applies the configuration the userspace daemon sends it.
 
-## Принцип работы
+## How it works
 
-1. Ждёт появления карты (`CACT_NETCTL_NETCFG_GET` -> `link_up`).
-2. Открывает UDP-сокет `0.0.0.0:68`.
-3. `DISCOVER` -> `OFFER` -> `REQUEST` -> `ACK` (broadcast `255.255.255.255:67`).
-4. Полученные `ip / mask / gw / dns` применяет в ядро через
+1. Wait for the NIC to appear (`CACT_NETCTL_NETCFG_GET` -> `link_up`).
+2. Open a UDP socket on `0.0.0.0:68`.
+3. `DISCOVER` -> `OFFER` -> `REQUEST` -> `ACK` (broadcast to `255.255.255.255:67`).
+4. Apply the received `ip / mask / gw / dns` to the kernel through
    `/dev/net` (`CACT_NETCTL_NETCFG`).
-5. Спит до `T1` и продлевает аренду (unicast серверу), затем до `T2`
-   (broadcast/rebind). При неудаче аренда перезапускается с `DISCOVER`.
+5. Sleep until `T1` and renew the lease (unicast to the server), then until `T2`
+   (broadcast/rebind). On failure, restart from `DISCOVER`.
 
-## Запуск
-
-```
-/sbin/dhcpd            # клиент на eth0
-/sbin/dhcpd -i eth0    # явно указать интерфейс (карта в CactOS одна)
-```
-
-Демону нужен root (ioctl `CACT_NETCTL_NETCFG` разрешён только root).
-
-## Сборка
+## Running
 
 ```
-make CACTLIB=../CactLibc-x86_32
-make install LR_SBIN=../LocalRepoCactOS-x86_32/lib/sbin
+/sbin/dhcpd            # client on eth0
+/sbin/dhcpd -i eth0    # pick the interface explicitly (CactOS has one NIC)
 ```
 
-## Зависимости
+The daemon needs root (the `CACT_NETCTL_NETCFG` ioctl is root-only).
 
-* CactLibc (`../CactLibc-x86_32`) — `clibc.so` и `build/pic/start.o`
-* Ядро с ABI `CACT_NETCTL_NETCFG` / `CACT_NETCTL_NETCFG_GET` (ioctl_abi.h)
+## Building
 
-Совместно с `networkd` демон обычно не нужен как отдельный процесс: `networkd`
-сам умеет статическую настройку и запуск `dhcpd`, если конфиг велит `dhcp=yes`.
+```
+meson setup build-meson --cross-file cross/i686-cact-clang.ini -Dcactlib=../CactLibc-x86_32
+ninja -C build-meson            # build-meson/dhcpd
+ninja -C build-meson stage      # copy into ../LocalRepoCactOS-x86_32/lib/sbin (-Dlr_sbin)
+```
+
+## Dependencies
+
+* CactLibc (`../CactLibc-x86_32`) — `clibc.so` and `build-meson/start.o`
+* A kernel with the `CACT_NETCTL_NETCFG` / `CACT_NETCTL_NETCFG_GET` ABI (ioctl_abi.h)
+
+Together with `networkd` the daemon is usually not needed as a separate process:
+`networkd` handles static configuration itself and can start `dhcpd` when the
+config says `dhcp=yes`.
