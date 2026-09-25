@@ -1,18 +1,18 @@
 /*
- * dhcpd — DHCP-клиент CactOS (аналог dhclient/dhcpcd для Linux).
+ * dhcpd — DHCP client for CactOS (analog of dhclient/dhcpcd on Linux).
  *
- * Держит на сетевой карте адрес по DHCP: DISCOVER/OFFER/REQUEST/ACK,
- * продлевает аренду по T1/T2, применяет полученный конфиг (ip/mask/gw/dns)
- * в ядро через /dev/net CACT_NETCTL_NETCFG. Ядро DHCP не выполняет —
- * только применяет то, что ему скажет этот демон (или networkd).
+ * Keeps an address on the network card via DHCP: DISCOVER/OFFER/REQUEST/ACK,
+ * renews the lease at T1/T2, applies the received config (ip/mask/gw/dns)
+ * to the kernel via /dev/net CACT_NETCTL_NETCFG. The kernel does not perform
+ * DHCP — it only applies what this daemon (or networkd) tells it.
  *
- * Использование:
+ * Usage:
  *   dhcpd [-i IFACE] [-f]
  *
- *   -i IFACE   имя интерфейса (по умолчанию eth0; карта в CactOS одна)
- *   -f         не уходить в фоновый режим (по умолчанию и так foreground)
+ *   -i IFACE   interface name (default eth0; CactOS has a single card)
+ *   -f         do not go into the background (foreground is the default anyway)
  *
- * Демон рассчитан на запуск от root (нужен CACT_NETCTL_NETCFG).
+ * The daemon is meant to be run as root (CACT_NETCTL_NETCFG is required).
  */
 
 #include <stdint.h>
@@ -66,7 +66,7 @@ struct dhcp_hdr {
 } __attribute__((packed));
 
 typedef struct {
-    uint32_t ip_host;      /* yiaddr от сервера, host order */
+    uint32_t ip_host;      /* yiaddr from the server, host order */
     uint32_t netmask_host;
     uint32_t gateway_host;
     uint32_t dns_host;
@@ -149,7 +149,7 @@ static void opt_end(uint8_t *opts, int *off, int cap) {
     if (*off < cap) opts[(*off)++] = DHCP_OPT_END;
 }
 
-/* ── /dev/net: чтение/применение конфига ядра ───────────────────────────── */
+/* ── /dev/net: read/apply kernel config ─────────────────────────────────── */
 
 static int net_get(cact_netcfg_get_t *g) {
     int fd = open("/dev/net", O_RDWR);
@@ -175,7 +175,7 @@ static int net_apply(const lease_t *ls) {
     return r;
 }
 
-/* ── сокет ───────────────────────────────────────────────────────────────── */
+/* ── socket ──────────────────────────────────────────────────────────────── */
 
 static int dhcp_socket(void) {
     int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -195,7 +195,7 @@ static int dhcp_socket(void) {
     return fd;
 }
 
-/* ── сборка сообщений ───────────────────────────────────────────────────── */
+/* ── message building ───────────────────────────────────────────────────── */
 
 static void dhcp_fill_hdr(struct dhcp_hdr *h, int op, const uint8_t mac[6]) {
     memset(h, 0, sizeof(*h));
@@ -213,7 +213,7 @@ static void dhcp_build_discover(struct dhcp_hdr *h, const uint8_t mac[6]) {
     dhcp_fill_hdr(h, 1, mac);
     int oi = 0;
     opt_append_u8(h->opts, &oi, (int)sizeof(h->opts), DHCP_OPT_MSG_TYPE, DHCP_TYPE_DISCOVER);
-    /* параметр-request list: subnet/router/dns/lease */
+    /* parameter-request list: subnet/router/dns/lease */
     h->opts[oi++] = DHCP_OPT_PARAM_REQ;
     h->opts[oi++] = 4;
     h->opts[oi++] = DHCP_OPT_SUBNET;
@@ -255,7 +255,7 @@ static int dhcp_sendto(int fd, const struct dhcp_hdr *h, uint32_t dst_ip_h, uint
     return sendto(fd, h, sizeof(*h), 0, (struct sockaddr *)&dst, sizeof(dst));
 }
 
-/* Ждём ответ с нужным типом до deadline (time()). */
+/* Wait for a reply of the required type until deadline (time()). */
 static int dhcp_wait_reply(int fd, uint32_t want_type, time_t deadline,
                            struct dhcp_hdr *rep, lease_t *out) {
     while (time(0) < deadline) {
@@ -269,13 +269,13 @@ static int dhcp_wait_reply(int fd, uint32_t want_type, time_t deadline,
         }
         if ((size_t)n < offsetof(struct dhcp_hdr, opts) + 4) continue;
         if (rep->op != 2) continue;                       /* BOOTREPLY */
-        if (rep->xid != htonl(g_xid)) continue;           /* чужой транзакции */
+        if (rep->xid != htonl(g_xid)) continue;           /* another transaction */
         if (ntohl(rep->magic) != DHCP_MAGIC) continue;
 
         int opts_len = n - (int)offsetof(struct dhcp_hdr, opts);
         uint8_t mt = 0;
         if (opt_get_u8(rep->opts, opts_len, DHCP_OPT_MSG_TYPE, &mt) < 0) continue;
-        if (mt == DHCP_TYPE_NAK) return -2;               /* сервер отказал */
+        if (mt == DHCP_TYPE_NAK) return -2;               /* server refused */
         if (mt != want_type) continue;
 
         out->ip_host = ntohl(rep->yiaddr);
@@ -295,7 +295,7 @@ static int dhcp_wait_reply(int fd, uint32_t want_type, time_t deadline,
         if (out->t2_s < out->t1_s || out->t2_s > out->lease_s) out->t2_s = out->lease_s;
         return 0;
     }
-    return -1;   /* таймаут */
+    return -1;   /* timeout */
 }
 
 static void lease_copy_mac(lease_t *ls, const uint8_t mac[6]) {
@@ -308,8 +308,8 @@ static void ip_print(uint32_t ip_h) {
            (unsigned)((ip_h >> 8) & 0xFF), (unsigned)(ip_h & 0xFF));
 }
 
-/* Полный цикл INIT/SELECTING/REQUESTING: DISCOVER->OFFER->REQUEST->ACK.
- * Возвращает 0 и заполненный lease при успехе. */
+/* Full INIT/SELECTING/REQUESTING cycle: DISCOVER->OFFER->REQUEST->ACK.
+ * Returns 0 and a filled lease on success. */
 static int dhcp_acquire(int fd, const uint8_t mac[6], lease_t *out) {
     struct dhcp_hdr req, rep;
 
@@ -343,7 +343,7 @@ static int dhcp_acquire(int fd, const uint8_t mac[6], lease_t *out) {
 
     lease_copy_mac(out, mac);
     for (int attempt = 0; attempt < 5; attempt++) {
-        /* SELECTING: REQUEST выбранного адреса, broadcast, include server id */
+        /* SELECTING: REQUEST for the chosen address, broadcast, include server id */
         dhcp_build_request(&req, mac, out->ip_host, out->server_host, 0, 1);
         printf("dhcpd: request #%d\n", attempt + 1);
         if (dhcp_sendto(fd, &req, 0xFFFFFFFFu, DHCP_SERVER_PORT) < 0) {
@@ -359,8 +359,8 @@ static int dhcp_acquire(int fd, const uint8_t mac[6], lease_t *out) {
     return -1;
 }
 
-/* Продление аренды: RENEWING (unicast серверу) затем REBINDING (broadcast).
- * Возвращает 0 при продлении, -1 при неудаче (аренда истекла). */
+/* Lease renewal: RENEWING (unicast to the server) then REBINDING (broadcast).
+ * Returns 0 on renewal, -1 on failure (lease expired). */
 static int dhcp_renew(int fd, const uint8_t mac[6], lease_t *ls) {
     struct dhcp_hdr req, rep;
     time_t now = time(0);
@@ -370,7 +370,7 @@ static int dhcp_renew(int fd, const uint8_t mac[6], lease_t *ls) {
         g_xid = (uint32_t)((uint32_t)getpid() << 16) ^
                 (uint32_t)(time(0) + attempt) ^ 0xD00DFEEDu;
         if (attempt < 2 && ls->server_host) {
-            /* RENEWING: к серверу напрямую */
+            /* RENEWING: directly to the server */
             dhcp_build_request(&req, mac, ls->ip_host, ls->server_host,
                                ls->ip_host, 0);
             printf("dhcpd: renew to server (unicast)\n");
@@ -415,13 +415,13 @@ int main(int argc, char *argv[]) {
         } else if (argv[i][1] == 'f') {
             foreground = 1;
         } else if (argv[i][1] == 'd') {
-            foreground = 0;   /* «daemon»: подсказка, детач делаем вручную ниже */
+            foreground = 0;   /* «daemon»: hint only, we detach manually below */
         }
     }
     (void)foreground;
 
     for (;;) {
-        /* ждём появления карты */
+        /* wait for the card to appear */
         cact_netcfg_get_t link;
         memset(&link, 0, sizeof(link));
         for (;;) {
@@ -445,7 +445,7 @@ int main(int argc, char *argv[]) {
         if (dhcp_acquire(fd, link.mac, &ls) != 0) {
             close(fd);
             sleep(5);
-            continue;   /* сервера нет/сеть не готова — пробуем снова */
+            continue;   /* no server / network not ready — retry */
         }
 
         if (net_apply(&ls) != 0) {
@@ -456,7 +456,7 @@ int main(int argc, char *argv[]) {
         }
         lease_print(&ls);
 
-        /* BOUND: спим до T1, затем renew; при неудаче — до T2 и полный перезапуск */
+        /* BOUND: sleep until T1, then renew; on failure — until T2 and full restart */
         int renewed = 0;
         time_t bound_at = time(0);
         while (1) {
