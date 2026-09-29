@@ -17,8 +17,8 @@ applies the configuration the userspace daemon sends it.
 ## Running
 
 ```
-/sbin/dhcpd            # client on eth0
-/sbin/dhcpd -i eth0    # pick the interface explicitly (CactOS has one NIC)
+/usr/sbin/dhcpd            # client on eth0
+/usr/sbin/dhcpd -i eth0    # pick the interface explicitly (CactOS has one NIC)
 ```
 
 The daemon needs root (the `CACT_NETCTL_NETCFG` ioctl is root-only).
