@@ -4,7 +4,7 @@
  * Keeps an address on the network card via DHCP: DISCOVER/OFFER/REQUEST/ACK,
  * renews the lease at T1/T2, applies the received config (ip/mask/gw/dns)
  * to the kernel via /dev/net CACT_NETCTL_NETCFG. The kernel does not perform
- * DHCP — it only applies what this daemon (or networkd) tells it.
+ * DHCP — it only applies what this daemon (or the ip tool) tells it.
  *
  * Usage:
  *   dhcpd [-i IFACE] [-f]

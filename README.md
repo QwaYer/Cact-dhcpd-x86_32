@@ -37,6 +37,8 @@ ninja -C build-meson stage      # copy into ../LocalRepoCactOS-x86_32/lib/sbin (
 * CactLibc (`../CactLibc-x86_32`) — `clibc.so` and `build-meson/start.o`
 * A kernel with the `CACT_NETCTL_NETCFG` / `CACT_NETCTL_NETCFG_GET` ABI (ioctl_abi.h)
 
-Together with `networkd` the daemon is usually not needed as a separate process:
-`networkd` handles static configuration itself and can start `dhcpd` when the
-config says `dhcp=yes`.
+`dhcpd` is the DHCP client; for static addressing use the `ip` tool, which writes
+the same `CACT_NETCTL_NETCFG` configuration. `netd` (`Cact-netd-x86_32`) does
+**not** configure the interface — it only watches link/IP/gateway/DNS changes and
+logs them. To start `dhcpd` at boot, add it to the `services` list in
+`/etc/cgoct.conf`.
