@@ -11,8 +11,9 @@ applies the configuration the userspace daemon sends it.
 3. `DISCOVER` -> `OFFER` -> `REQUEST` -> `ACK` (broadcast to `255.255.255.255:67`).
 4. Apply the received `ip / mask / gw / dns` to the kernel through
    `/dev/net` (`CACT_NETCTL_NETCFG`).
-5. Sleep until `T1` and renew the lease (unicast to the server), then until `T2`
-   (broadcast/rebind). On failure, restart from `DISCOVER`.
+5. Sleep until `T1` and renew the lease (unicast to the server, then
+   broadcast/rebind if it does not answer). On failure, wait out the lease and
+   restart from `DISCOVER`.
 
 ## Running
 
